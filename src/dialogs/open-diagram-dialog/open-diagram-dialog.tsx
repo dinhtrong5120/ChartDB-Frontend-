@@ -20,7 +20,6 @@ import {
 } from '@/components/table/table';
 import { useConfig } from '@/hooks/use-config';
 import { useDialog } from '@/hooks/use-dialog';
-import { useStorage } from '@/hooks/use-storage';
 import type { Diagram } from '@/lib/domain/diagram';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -28,6 +27,7 @@ import { useNavigate } from 'react-router-dom';
 import type { BaseDialogProps } from '../common/base-dialog-props';
 import { useDebounce } from '@/hooks/use-debounce';
 import { DiagramRowActionsMenu } from './diagram-row-actions-menu/diagram-row-actions-menu';
+import { getServerDiagram, listServerDiagrams } from '@/lib/api/chartdb-api';
 
 export interface OpenDiagramDialogProps extends BaseDialogProps {
     canClose?: boolean;
@@ -41,20 +41,22 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
     const { t } = useTranslation();
     const { updateConfig } = useConfig();
     const navigate = useNavigate();
-    const { listDiagrams } = useStorage();
     const [diagrams, setDiagrams] = useState<Diagram[]>([]);
     const [selectedDiagramId, setSelectedDiagramId] = useState<
         string | undefined
     >();
 
     const fetchDiagrams = useCallback(async () => {
-        const diagrams = await listDiagrams({ includeTables: true });
+        const summaries = await listServerDiagrams();
+        const diagrams = await Promise.all(
+            summaries.map((diagram) => getServerDiagram(diagram.id))
+        );
         setDiagrams(
             diagrams.sort(
                 (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()
             )
         );
-    }, [listDiagrams]);
+    }, []);
 
     useEffect(() => {
         if (!dialog.open) {

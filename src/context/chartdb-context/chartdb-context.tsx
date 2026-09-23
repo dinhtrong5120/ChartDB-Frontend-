@@ -14,6 +14,7 @@ import { EventEmitter } from 'ahooks/lib/useEventEmitter';
 import type { Area } from '@/lib/domain/area';
 import type { DBCustomType } from '@/lib/domain/db-custom-type';
 import type { Note } from '@/lib/domain/note';
+import type { SaveStatus } from '@/lib/api/chartdb-api';
 
 export type ChartDBEventType =
     | 'add_tables'
@@ -80,6 +81,7 @@ export interface ChartDBContext {
     currentDiagram: Diagram;
     events: EventEmitter<ChartDBEvent>;
     readonly?: boolean;
+    saveStatus: SaveStatus;
 
     highlightedCustomType?: DBCustomType;
     highlightCustomTypeId: (id?: string) => void;
@@ -350,6 +352,7 @@ export const chartDBContext = createContext<ChartDBContext>({
         updatedAt: new Date(),
     },
     events: new EventEmitter(),
+    saveStatus: 'saved',
 
     // General operations
     updateDiagramId: emptyFn,

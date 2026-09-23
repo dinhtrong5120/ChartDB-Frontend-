@@ -8,6 +8,7 @@ import { useStorage } from '@/hooks/use-storage';
 import { LocalConfigProvider } from '@/context/local-config-context/local-config-provider';
 import { StorageProvider } from '@/context/storage-context/storage-provider';
 import { ThemeProvider } from '@/context/theme-context/theme-provider';
+import { replaceDiagramOnServer } from '@/lib/api/server-diagrams';
 
 export const CloneTemplateComponent: React.FC = () => {
     const navigate = useNavigate();
@@ -29,8 +30,6 @@ export const CloneTemplateComponent: React.FC = () => {
         clonedBefore.current = true;
         const diagram = convertTemplateToNewDiagram(template);
 
-        await deleteDiagram(diagram.id);
-
         const now = new Date();
         const diagramToAdd: Diagram = {
             ...diagram,
@@ -38,7 +37,10 @@ export const CloneTemplateComponent: React.FC = () => {
             updatedAt: now,
         };
 
-        await addDiagram({ diagram: diagramToAdd });
+        await replaceDiagramOnServer(
+            { addDiagram, deleteDiagram },
+            diagramToAdd
+        );
         navigate(`/diagrams/${diagramToAdd.id}`);
     }, [addDiagram, deleteDiagram, navigate, template]);
 

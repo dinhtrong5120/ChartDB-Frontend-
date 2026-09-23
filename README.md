@@ -79,8 +79,13 @@ Use the [cloud version](https://app.chartdb.io?ref=github_readme_2) or deploy lo
 
 ```bash
 npm install
-npm run dev
+VITE_API_BASE_URL=http://localhost:8000/api/v1 npm run dev
 ```
+
+This frontend now uses the separate `chartdb-backend` repository as the source of
+truth for saved diagrams. IndexedDB remains a local draft and legacy migration
+store. Configure OpenAI and the source MySQL connection only in the backend; API
+keys and database credentials are never accepted by this frontend.
 
 ### Build
 
@@ -89,54 +94,33 @@ npm install
 npm run build
 ```
 
-Or like this if you want to have AI capabilities:
-
-```bash
-npm install
-VITE_OPENAI_API_KEY=<YOUR_OPEN_AI_KEY> npm run build
-```
-
 ### Run the Docker Container
 
 ```bash
-docker run -e OPENAI_API_KEY=<YOUR_OPEN_AI_KEY> -p 8080:80 ghcr.io/chartdb/chartdb:latest
+docker run -e API_BASE_URL=http://localhost:8000/api/v1 -p 8080:80 ghcr.io/chartdb/chartdb:latest
 ```
 
 #### Build and Run locally
 
 ```bash
 docker build -t chartdb .
-docker run -e OPENAI_API_KEY=<YOUR_OPEN_AI_KEY> -p 8080:80 chartdb
+docker run -e API_BASE_URL=http://localhost:8000/api/v1 -p 8080:80 chartdb
 ```
 
-#### Using Custom Inference Server
+#### Backend endpoint
 
 ```bash
-# Build
 docker build \
-  --build-arg VITE_OPENAI_API_ENDPOINT=<YOUR_ENDPOINT> \
-  --build-arg VITE_LLM_MODEL_NAME=<YOUR_MODEL_NAME> \
+  --build-arg VITE_API_BASE_URL=http://localhost:8000/api/v1 \
   -t chartdb .
-
-# Run
-docker run \
-  -e OPENAI_API_ENDPOINT=<YOUR_ENDPOINT> \
-  -e LLM_MODEL_NAME=<YOUR_MODEL_NAME> \
-  -p 8080:80 chartdb
 ```
 
 > **Privacy Note:** ChartDB includes privacy-focused analytics via Fathom Analytics. You can disable this by adding `-e DISABLE_ANALYTICS=true` to the run command or `--build-arg VITE_DISABLE_ANALYTICS=true` when building.
 
-> **Note:** You must configure either Option 1 (OpenAI API key) OR Option 2 (Custom endpoint and model name) for AI capabilities to work. Do not mix the two options.
+> **Note:** AI export is available when `OPENAI_API_KEY` and `OPENAI_MODEL`
+> are configured in `chartdb-backend`. `OPENAI_BASE_URL` is optional.
 
 Open your browser and navigate to `http://localhost:8080`.
-
-Example configuration for a local vLLM server:
-
-```bash
-VITE_OPENAI_API_ENDPOINT=http://localhost:8000/v1
-VITE_LLM_MODEL_NAME=Qwen/Qwen2.5-32B-Instruct-AWQ
-```
 
 ## Try it on our website
 

@@ -19,6 +19,7 @@ import { useNavigate } from 'react-router-dom';
 import { diagramFromJSONInput } from '@/lib/export-import-utils';
 import { Alert, AlertDescription, AlertTitle } from '@/components/alert/alert';
 import { AlertCircle } from 'lucide-react';
+import { createDiagramOnServer } from '@/lib/api/server-diagrams';
 
 export interface ImportDiagramDialogProps extends BaseDialogProps {}
 
@@ -27,7 +28,7 @@ export const ImportDiagramDialog: React.FC<ImportDiagramDialogProps> = ({
 }) => {
     const { t } = useTranslation();
     const [file, setFile] = useState<File | null>(null);
-    const { addDiagram } = useStorage();
+    const { addDiagram, deleteDiagram } = useStorage();
     const navigate = useNavigate();
     const [error, setError] = useState(false);
 
@@ -58,7 +59,10 @@ export const ImportDiagramDialog: React.FC<ImportDiagramDialogProps> = ({
             try {
                 const diagram = diagramFromJSONInput(json);
 
-                await addDiagram({ diagram });
+                await createDiagramOnServer(
+                    { addDiagram, deleteDiagram },
+                    diagram
+                );
 
                 closeImportDiagramDialog();
                 closeCreateDiagramDialog();
@@ -74,6 +78,7 @@ export const ImportDiagramDialog: React.FC<ImportDiagramDialogProps> = ({
     }, [
         file,
         addDiagram,
+        deleteDiagram,
         navigate,
         closeImportDiagramDialog,
         closeCreateDiagramDialog,

@@ -1,5 +1,5 @@
 import type { Diagram } from '../../domain/diagram';
-import { OPENAI_API_KEY, OPENAI_API_ENDPOINT, LLM_MODEL_NAME } from '@/lib/env';
+import { streamAIExport } from '@/lib/api/chartdb-api';
 import { DatabaseType } from '@/lib/domain/database-type';
 import type { DBTable } from '@/lib/domain/db-table';
 import { dataTypeMap, type DataType } from '../data-types/data-types';
@@ -720,26 +720,6 @@ export const exportBaseSQL = ({
     return sqlScript;
 };
 
-const validateConfiguration = () => {
-    const apiKey = window?.env?.OPENAI_API_KEY ?? OPENAI_API_KEY;
-    const baseUrl = window?.env?.OPENAI_API_ENDPOINT ?? OPENAI_API_ENDPOINT;
-    const modelName = window?.env?.LLM_MODEL_NAME ?? LLM_MODEL_NAME;
-
-    // If using custom endpoint and model, don't require OpenAI API key
-    if (baseUrl && modelName) {
-        return { useCustomEndpoint: true };
-    }
-
-    // If using OpenAI's service, require API key
-    if (apiKey) {
-        return { useCustomEndpoint: false };
-    }
-
-    throw new Error(
-        'Configuration Error: Either provide an OpenAI API key or both a custom endpoint and model name'
-    );
-};
-
 export const exportSQL = async (
     diagram: Diagram,
     databaseType: DatabaseType,
@@ -765,74 +745,21 @@ export const exportSQL = async (
         return cachedResult;
     }
 
-    // Validate configuration before proceeding
-    const { useCustomEndpoint } = validateConfiguration();
-
-    const [{ streamText, generateText }, { createOpenAI }] = await Promise.all([
-        import('ai'),
-        import('@ai-sdk/openai'),
-    ]);
-
-    const apiKey = window?.env?.OPENAI_API_KEY ?? OPENAI_API_KEY;
-    const baseUrl = window?.env?.OPENAI_API_ENDPOINT ?? OPENAI_API_ENDPOINT;
-    const modelName =
-        window?.env?.LLM_MODEL_NAME ??
-        LLM_MODEL_NAME ??
-        'gpt-4o-mini-2024-07-18';
-
-    let config: { apiKey: string; baseUrl?: string };
-
-    if (useCustomEndpoint) {
-        config = {
-            apiKey: apiKey,
-            baseUrl: baseUrl,
-        };
-    } else {
-        config = {
-            apiKey: apiKey,
-        };
-    }
-
-    const openai = createOpenAI(config);
-
-    const prompt = generateSQLPrompt(databaseType, sqlScript);
-
     try {
-        if (options?.stream) {
-            const { textStream, text: textPromise } = await streamText({
-                model: openai(modelName),
-                prompt: prompt,
-            });
-
-            for await (const textPart of textStream) {
-                if (options.signal?.aborted) {
-                    return '';
-                }
-                options.onResultStream(textPart);
-            }
-
-            const text = await textPromise;
-
-            setInCache(cacheKey, text);
-            return text;
-        }
-
-        const { text } = await generateText({
-            model: openai(modelName),
-            prompt: prompt,
+        const text = await streamAIExport({
+            sqlScript,
+            targetDatabaseType: databaseType,
+            signal: options?.signal,
+            onDelta: options?.onResultStream ?? (() => undefined),
         });
-
         setInCache(cacheKey, text);
         return text;
     } catch (error: unknown) {
         console.error('Error generating SQL:', error);
-        if (error instanceof Error && error.message.includes('API key')) {
-            throw new Error(
-                'Error: Please check your API configuration. If using a custom endpoint, make sure the endpoint URL is correct.'
-            );
-        }
         throw new Error(
-            'Error generating SQL script. Please check your configuration and try again.'
+            error instanceof Error
+                ? error.message
+                : 'Error generating SQL script. Please check the backend configuration.'
         );
     }
 };
@@ -904,7 +831,10 @@ function alignForeignKeyDataTypes(diagram: Diagram) {
     });
 }
 
-const generateSQLPrompt = (databaseType: DatabaseType, sqlScript: string) => {
+export const generateSQLPrompt = (
+    databaseType: DatabaseType,
+    sqlScript: string
+) => {
     const basePrompt = `
         You are generating SQL scripts for creating database tables and sequences, handling primary keys, indices, and other table attributes.
         The following instructions will guide you in optimizing the scripts for the ${databaseType} dialect:

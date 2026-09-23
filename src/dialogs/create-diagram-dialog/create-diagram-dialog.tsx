@@ -7,7 +7,10 @@ import { loadFromDatabaseMetadata } from '@/lib/data/import-metadata/import';
 import { useNavigate } from 'react-router-dom';
 import { useConfig } from '@/hooks/use-config';
 import type { DatabaseMetadata } from '@/lib/data/import-metadata/metadata-types/database-metadata';
-import { loadDatabaseMetadata } from '@/lib/data/import-metadata/metadata-types/database-metadata';
+import {
+    isDatabaseMetadata,
+    loadDatabaseMetadata,
+} from '@/lib/data/import-metadata/metadata-types/database-metadata';
 import { generateDiagramId } from '@/lib/utils';
 import { useChartDB } from '@/hooks/use-chartdb';
 import { useDialog } from '@/hooks/use-dialog';
@@ -27,6 +30,12 @@ import {
     importDBMLToDiagram,
 } from '@/lib/dbml/dbml-import/dbml-import';
 import type { ImportMethod } from '@/lib/import-method/import-method';
+import { createDiagramOnServer } from '@/lib/api/server-diagrams';
+import {
+    introspectSourceDatabase,
+    listServerDiagrams,
+} from '@/lib/api/chartdb-api';
+import { Button } from '@/components/button/button';
 
 export interface CreateDiagramDialogProps extends BaseDialogProps {}
 
@@ -48,7 +57,7 @@ export const CreateDiagramDialog: React.FC<CreateDiagramDialogProps> = ({
     const [step, setStep] = useState<CreateDiagramDialogStep>(
         CreateDiagramDialogStep.SELECT_DATABASE
     );
-    const { listDiagrams, addDiagram } = useStorage();
+    const { addDiagram, deleteDiagram } = useStorage();
     const [diagramNumber, setDiagramNumber] = useState<number>(1);
     const navigate = useNavigate();
     const [parsedMetadata, setParsedMetadata] = useState<DatabaseMetadata>();
@@ -61,11 +70,11 @@ export const CreateDiagramDialog: React.FC<CreateDiagramDialogProps> = ({
 
     useEffect(() => {
         const fetchDiagrams = async () => {
-            const diagrams = await listDiagrams();
+            const diagrams = await listServerDiagrams();
             setDiagramNumber(diagrams.length + 1);
         };
         fetchDiagrams();
-    }, [listDiagrams, setDiagramNumber, dialog.open]);
+    }, [setDiagramNumber, dialog.open]);
 
     useEffect(() => {
         setStep(CreateDiagramDialogStep.SELECT_DATABASE);
@@ -127,18 +136,22 @@ export const CreateDiagramDialog: React.FC<CreateDiagramDialogProps> = ({
                 });
             }
 
-            await addDiagram({ diagram });
+            const created = await createDiagramOnServer(
+                { addDiagram, deleteDiagram },
+                diagram
+            );
             await updateConfig({
-                config: { defaultDiagramId: diagram.id },
+                config: { defaultDiagramId: created.id },
             });
 
             closeCreateDiagramDialog();
-            navigate(`/diagrams/${diagram.id}`);
+            navigate(`/diagrams/${created.id}`);
         },
         [
             importMethod,
             databaseType,
             addDiagram,
+            deleteDiagram,
             databaseEdition,
             closeCreateDiagramDialog,
             navigate,
@@ -161,13 +174,17 @@ export const CreateDiagramDialog: React.FC<CreateDiagramDialogProps> = ({
             updatedAt: new Date(),
         };
 
-        await addDiagram({ diagram });
-        await updateConfig({ config: { defaultDiagramId: diagram.id } });
+        const created = await createDiagramOnServer(
+            { addDiagram, deleteDiagram },
+            diagram
+        );
+        await updateConfig({ config: { defaultDiagramId: created.id } });
         closeCreateDiagramDialog();
-        navigate(`/diagrams/${diagram.id}`);
+        navigate(`/diagrams/${created.id}`);
     }, [
         databaseType,
         addDiagram,
+        deleteDiagram,
         databaseEdition,
         closeCreateDiagramDialog,
         navigate,
@@ -216,6 +233,27 @@ export const CreateDiagramDialog: React.FC<CreateDiagramDialogProps> = ({
         }
     }, [importMethod, scriptResult, importNewDiagram]);
 
+    const importConfiguredMySQL = useCallback(async () => {
+        setIsParsingMetadata(true);
+        try {
+            const metadata = await introspectSourceDatabase();
+            if (!isDatabaseMetadata(metadata)) {
+                throw new Error(
+                    'The backend returned invalid database metadata.'
+                );
+            }
+            setParsedMetadata(metadata);
+            const total = metadata.tables.length + metadata.views.length;
+            if (total > MAX_TABLES_WITHOUT_SHOWING_FILTER) {
+                setStep(CreateDiagramDialogStep.SELECT_TABLES);
+            } else {
+                await importNewDiagram({ databaseMetadata: metadata });
+            }
+        } finally {
+            setIsParsingMetadata(false);
+        }
+    }, [importNewDiagram]);
+
     return (
         <Dialog
             {...dialog}
@@ -251,22 +289,36 @@ export const CreateDiagramDialog: React.FC<CreateDiagramDialogProps> = ({
                         }
                     />
                 ) : step === CreateDiagramDialogStep.IMPORT_DATABASE ? (
-                    <ImportDatabase
-                        onImport={importNewDiagramOrFilterTables}
-                        onCreateEmptyDiagram={createEmptyDiagram}
-                        databaseEdition={databaseEdition}
-                        databaseType={databaseType}
-                        scriptResult={scriptResult}
-                        setDatabaseEdition={setDatabaseEdition}
-                        goBack={() =>
-                            setStep(CreateDiagramDialogStep.SELECT_DATABASE)
-                        }
-                        setScriptResult={setScriptResult}
-                        title={t('new_diagram_dialog.import_database.title')}
-                        importMethod={importMethod}
-                        setImportMethod={setImportMethod}
-                        keepDialogAfterImport={true}
-                    />
+                    <div className="flex min-h-0 flex-col gap-2">
+                        {databaseType === DatabaseType.MYSQL && (
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                disabled={isParsingMetadata}
+                                onClick={importConfiguredMySQL}
+                            >
+                                Import configured MySQL source
+                            </Button>
+                        )}
+                        <ImportDatabase
+                            onImport={importNewDiagramOrFilterTables}
+                            onCreateEmptyDiagram={createEmptyDiagram}
+                            databaseEdition={databaseEdition}
+                            databaseType={databaseType}
+                            scriptResult={scriptResult}
+                            setDatabaseEdition={setDatabaseEdition}
+                            goBack={() =>
+                                setStep(CreateDiagramDialogStep.SELECT_DATABASE)
+                            }
+                            setScriptResult={setScriptResult}
+                            title={t(
+                                'new_diagram_dialog.import_database.title'
+                            )}
+                            importMethod={importMethod}
+                            setImportMethod={setImportMethod}
+                            keepDialogAfterImport={true}
+                        />
+                    </div>
                 ) : step === CreateDiagramDialogStep.SELECT_TABLES ? (
                     <SelectTables
                         isLoading={isParsingMetadata || !parsedMetadata}

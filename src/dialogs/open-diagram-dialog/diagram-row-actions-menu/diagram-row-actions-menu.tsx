@@ -13,6 +13,8 @@ import type { Diagram } from '@/lib/domain';
 import { useStorage } from '@/hooks/use-storage';
 import { cloneDiagram } from '@/lib/clone';
 import { useTranslation } from 'react-i18next';
+import { deleteServerDiagram } from '@/lib/api/chartdb-api';
+import { createDiagramOnServer } from '@/lib/api/server-diagrams';
 
 interface DiagramRowActionsMenuProps {
     diagram: Diagram;
@@ -32,13 +34,22 @@ export const DiagramRowActionsMenu: React.FC<DiagramRowActionsMenuProps> = ({
     const { t } = useTranslation();
 
     const onDelete = useCallback(async () => {
-        deleteDiagram(diagram.id);
+        if (!diagram.revision) return;
+        await deleteServerDiagram(diagram.id, diagram.revision);
+        await deleteDiagram(diagram.id);
         refetch();
 
         if (diagram.id === diagramId || numberOfDiagrams <= 1) {
             window.location.href = '/';
         }
-    }, [deleteDiagram, diagram.id, diagramId, refetch, numberOfDiagrams]);
+    }, [
+        deleteDiagram,
+        diagram.id,
+        diagram.revision,
+        diagramId,
+        refetch,
+        numberOfDiagrams,
+    ]);
 
     const onDuplicate = useCallback(async () => {
         const duplicatedDiagram = cloneDiagram(diagram);
@@ -51,9 +62,12 @@ export const DiagramRowActionsMenu: React.FC<DiagramRowActionsMenuProps> = ({
 
         diagramToAdd.name = `${diagram.name} (Copy)`;
 
-        addDiagram({ diagram: diagramToAdd });
+        await createDiagramOnServer(
+            { addDiagram, deleteDiagram },
+            diagramToAdd
+        );
         refetch();
-    }, [addDiagram, refetch, diagram]);
+    }, [addDiagram, deleteDiagram, refetch, diagram]);
 
     return (
         <DropdownMenu>

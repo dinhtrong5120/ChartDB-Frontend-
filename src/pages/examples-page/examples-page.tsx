@@ -12,6 +12,7 @@ import { Helmet } from 'react-helmet-async';
 import { useNavigate } from 'react-router-dom';
 import { useStorage } from '@/hooks/use-storage';
 import type { Diagram } from '@/lib/domain/diagram';
+import { replaceDiagramOnServer } from '@/lib/api/server-diagrams';
 
 const ExamplesPageComponent: React.FC = () => {
     const { effectiveTheme } = useTheme();
@@ -27,8 +28,6 @@ const ExamplesPageComponent: React.FC = () => {
             const { diagram } = example;
             const { id } = diagram;
 
-            await deleteDiagram(id);
-
             const now = new Date();
             const diagramToAdd: Diagram = {
                 ...diagram,
@@ -36,7 +35,10 @@ const ExamplesPageComponent: React.FC = () => {
                 updatedAt: now,
             };
 
-            await addDiagram({ diagram: diagramToAdd });
+            await replaceDiagramOnServer(
+                { addDiagram, deleteDiagram },
+                diagramToAdd
+            );
             navigate(`/diagrams/${id}`);
         },
         [

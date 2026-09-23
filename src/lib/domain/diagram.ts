@@ -12,6 +12,7 @@ import type { DBCustomType } from './db-custom-type';
 import { dbCustomTypeSchema } from './db-custom-type';
 import type { Note } from './note';
 import { noteSchema } from './note';
+import type { DiagramFilter } from './diagram-filter/diagram-filter';
 
 export interface Diagram {
     id: string;
@@ -26,6 +27,8 @@ export interface Diagram {
     notes?: Note[];
     createdAt: Date;
     updatedAt: Date;
+    revision?: number;
+    filter?: DiagramFilter;
 }
 
 export const diagramSchema: z.ZodType<Diagram> = z.object({
@@ -41,4 +44,11 @@ export const diagramSchema: z.ZodType<Diagram> = z.object({
     notes: z.array(noteSchema).optional(),
     createdAt: z.date(),
     updatedAt: z.date(),
+    revision: z.number().int().positive().optional(),
+    filter: z
+        .object({
+            schemaIds: z.array(z.string()).optional(),
+            tableIds: z.array(z.string()).optional(),
+        })
+        .optional(),
 });

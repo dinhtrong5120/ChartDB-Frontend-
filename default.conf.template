@@ -11,9 +11,7 @@ server {
     location /config.js {
         default_type application/javascript;
         return 200 "window.env = {
-            OPENAI_API_KEY: \"$OPENAI_API_KEY\",
-            OPENAI_API_ENDPOINT: \"$OPENAI_API_ENDPOINT\",
-            LLM_MODEL_NAME: \"$LLM_MODEL_NAME\",
+            API_BASE_URL: \"$API_BASE_URL\",
             HIDE_CHARTDB_CLOUD: \"$HIDE_CHARTDB_CLOUD\",
             DISABLE_ANALYTICS: \"$DISABLE_ANALYTICS\"
         };";

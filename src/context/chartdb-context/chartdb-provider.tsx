@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import type { DBTable } from '@/lib/domain/db-table';
 import { deepCopy, generateId } from '@/lib/utils';
 import { defaultTableColor, randomColor, viewColor } from '@/lib/colors';
@@ -34,6 +34,16 @@ import {
     type DBCustomType,
 } from '@/lib/domain/db-custom-type';
 import { getDefaultPrimaryKeyType } from '@/lib/data/data-types/data-types';
+import {
+    ChartDBAPIError,
+    createServerDiagram,
+    deleteServerDiagram,
+    getServerDiagram,
+    saveServerDiagram,
+    type SaveStatus,
+    type ServerDiagram,
+} from '@/lib/api/chartdb-api';
+import { cloneDiagram } from '@/lib/clone';
 
 export interface ChartDBProviderProps {
     diagram?: Diagram;
@@ -53,6 +63,9 @@ export const ChartDBProvider: React.FC<
     const [diagramName, setDiagramName] = useState('');
     const [diagramCreatedAt, setDiagramCreatedAt] = useState<Date>(new Date());
     const [diagramUpdatedAt, setDiagramUpdatedAt] = useState<Date>(new Date());
+    const savedUpdatedAtRef = useRef(diagramUpdatedAt.getTime());
+    const [diagramRevision, setDiagramRevision] = useState<number>();
+    const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
     const [databaseType, setDatabaseType] = useState<DatabaseType>(
         DatabaseType.GENERIC
     );
@@ -154,6 +167,7 @@ export const ChartDBProvider: React.FC<
             areas,
             customTypes,
             notes,
+            revision: diagramRevision,
         }),
         [
             diagramId,
@@ -166,10 +180,28 @@ export const ChartDBProvider: React.FC<
             areas,
             customTypes,
             notes,
+            diagramRevision,
             diagramCreatedAt,
             diagramUpdatedAt,
         ]
     );
+
+    React.useEffect(() => {
+        if (diagramUpdatedAt.getTime() !== savedUpdatedAtRef.current) {
+            setSaveStatus('unsaved');
+        }
+    }, [diagramUpdatedAt]);
+
+    React.useEffect(() => {
+        const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+            if (saveStatus === 'unsaved' || saveStatus === 'error') {
+                event.preventDefault();
+            }
+        };
+        window.addEventListener('beforeunload', warnBeforeUnload);
+        return () =>
+            window.removeEventListener('beforeunload', warnBeforeUnload);
+    }, [saveStatus]);
 
     const clearDiagramData: ChartDBContext['clearDiagramData'] =
         useCallback(async () => {
@@ -198,6 +230,9 @@ export const ChartDBProvider: React.FC<
 
     const deleteDiagram: ChartDBContext['deleteDiagram'] =
         useCallback(async () => {
+            if (diagramRevision) {
+                await deleteServerDiagram(diagramId, diagramRevision);
+            }
             setDiagramId('');
             setDiagramName('');
             setDatabaseType(DatabaseType.GENERIC);
@@ -220,17 +255,55 @@ export const ChartDBProvider: React.FC<
                 db.deleteDiagramCustomTypes(diagramId),
                 db.deleteDiagramNotes(diagramId),
             ]);
-        }, [db, diagramId, resetRedoStack, resetUndoStack]);
+        }, [db, diagramId, diagramRevision, resetRedoStack, resetUndoStack]);
 
     const updateDiagramUpdatedAt: ChartDBContext['updateDiagramUpdatedAt'] =
         useCallback(async () => {
-            const updatedAt = new Date();
-            setDiagramUpdatedAt(updatedAt);
-            await db.updateDiagram({
-                id: diagramId,
-                attributes: { updatedAt },
-            });
-        }, [db, diagramId, setDiagramUpdatedAt]);
+            if (!currentDiagram.id || !diagramRevision) return;
+            setSaveStatus('saving');
+            const filter = await storageDB.getDiagramFilter(currentDiagram.id);
+            try {
+                const saved = await saveServerDiagram({
+                    ...currentDiagram,
+                    revision: diagramRevision,
+                    filter,
+                } as ServerDiagram);
+                setDiagramRevision(saved.revision);
+                savedUpdatedAtRef.current = saved.updatedAt.getTime();
+                setDiagramUpdatedAt(saved.updatedAt);
+                await storageDB.updateDiagram({
+                    id: saved.id,
+                    attributes: {
+                        updatedAt: saved.updatedAt,
+                        revision: saved.revision,
+                    },
+                });
+                setSaveStatus('saved');
+            } catch (error) {
+                setSaveStatus('error');
+                if (error instanceof ChartDBAPIError && error.status === 409) {
+                    const reload = window.confirm(
+                        'This diagram changed on the server. Press OK to reload the server version, or Cancel to save this draft as a copy.'
+                    );
+                    if (reload) {
+                        const serverDiagram = await getServerDiagram(
+                            currentDiagram.id
+                        );
+                        await storageDB.deleteDiagram(serverDiagram.id);
+                        await storageDB.addDiagram({ diagram: serverDiagram });
+                        window.location.reload();
+                    } else {
+                        const copy = cloneDiagram(currentDiagram).diagram;
+                        copy.name = `${currentDiagram.name} (Conflict copy)`;
+                        const created = await createServerDiagram(copy);
+                        await storageDB.addDiagram({ diagram: created });
+                        window.location.href = `/diagrams/${created.id}`;
+                    }
+                    return;
+                }
+                throw error;
+            }
+        }, [currentDiagram, diagramRevision, storageDB]);
 
     const updateDatabaseType: ChartDBContext['updateDatabaseType'] =
         useCallback(
@@ -1893,6 +1966,9 @@ export const ChartDBProvider: React.FC<
                 setCustomTypes(diagram.customTypes ?? []);
                 setDiagramCreatedAt(diagram.createdAt);
                 setDiagramUpdatedAt(diagram.updatedAt);
+                savedUpdatedAtRef.current = diagram.updatedAt.getTime();
+                setDiagramRevision(diagram.revision);
+                setSaveStatus('saved');
                 setHighlightedCustomTypeId(undefined);
                 setNotes(diagram.notes ?? []);
 
@@ -1913,6 +1989,7 @@ export const ChartDBProvider: React.FC<
                 setCustomTypes,
                 setDiagramCreatedAt,
                 setDiagramUpdatedAt,
+                setDiagramRevision,
                 setHighlightedCustomTypeId,
                 events,
                 setNotes,
@@ -1933,17 +2010,45 @@ export const ChartDBProvider: React.FC<
 
     const loadDiagram: ChartDBContext['loadDiagram'] = useCallback(
         async (diagramId: string) => {
-            const diagram = await storageDB.getDiagram(diagramId, {
-                includeRelationships: true,
-                includeTables: true,
-                includeDependencies: true,
-                includeAreas: true,
-                includeCustomTypes: true,
-                includeNotes: true,
-            });
+            let diagram: Diagram | undefined;
+            let isDraft = false;
+            try {
+                const serverDiagram = await getServerDiagram(diagramId);
+                const localDiagram = await storageDB.getDiagram(diagramId, {
+                    includeRelationships: true,
+                    includeTables: true,
+                    includeDependencies: true,
+                    includeAreas: true,
+                    includeCustomTypes: true,
+                    includeNotes: true,
+                });
+                const resumeDraft =
+                    localDiagram?.revision === serverDiagram.revision &&
+                    localDiagram.updatedAt.getTime() >
+                        serverDiagram.updatedAt.getTime() &&
+                    window.confirm(
+                        'An unsaved local draft exists. Press OK to resume it, or Cancel to discard it and load the server version.'
+                    );
+                isDraft = Boolean(resumeDraft);
+                diagram = resumeDraft ? localDiagram : serverDiagram;
+                if (!resumeDraft) {
+                    await storageDB.deleteDiagram(diagramId);
+                    await storageDB.addDiagram({ diagram: serverDiagram });
+                    if (serverDiagram.filter) {
+                        await storageDB.updateDiagramFilter(
+                            diagramId,
+                            serverDiagram.filter
+                        );
+                    }
+                }
+            } catch (error) {
+                console.error('Unable to load diagram from backend', error);
+                return undefined;
+            }
 
             if (diagram) {
                 loadDiagramFromData(diagram);
+                if (isDraft) setSaveStatus('unsaved');
             }
 
             return diagram;
@@ -2110,6 +2215,7 @@ export const ChartDBProvider: React.FC<
                 schemas,
                 events,
                 readonly,
+                saveStatus,
                 updateDiagramData,
                 updateDiagramId,
                 updateDiagramName,

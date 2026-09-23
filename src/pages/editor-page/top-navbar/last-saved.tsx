@@ -73,7 +73,7 @@ const timeAgolocaleFromLanguage = async (
 };
 
 export const LastSaved: React.FC<LastSavedProps> = () => {
-    const { currentDiagram } = useChartDB();
+    const { currentDiagram, saveStatus, updateDiagramUpdatedAt } = useChartDB();
     const { i18n } = useTranslation();
     const [language, setLanguage] = useState<string>('en_US');
 
@@ -92,17 +92,33 @@ export const LastSaved: React.FC<LastSavedProps> = () => {
 
     return (
         <Tooltip>
-            <TooltipTrigger>
-                <Badge
-                    variant="secondary"
-                    className="flex gap-1.5 whitespace-nowrap"
+            <TooltipTrigger asChild>
+                <button
+                    type="button"
+                    onClick={() =>
+                        updateDiagramUpdatedAt().catch(() => undefined)
+                    }
+                    disabled={saveStatus === 'saving'}
                 >
-                    <Save size={16} />
-                    <TimeAgo
-                        datetime={currentDiagram.updatedAt}
-                        locale={language}
-                    />
-                </Badge>
+                    <Badge
+                        variant="secondary"
+                        className="flex gap-1.5 whitespace-nowrap"
+                    >
+                        <Save size={16} />
+                        {saveStatus === 'saved' ? (
+                            <TimeAgo
+                                datetime={currentDiagram.updatedAt}
+                                locale={language}
+                            />
+                        ) : saveStatus === 'saving' ? (
+                            'Saving…'
+                        ) : saveStatus === 'error' ? (
+                            'Save failed'
+                        ) : (
+                            'Unsaved'
+                        )}
+                    </Badge>
+                </button>
             </TooltipTrigger>
             <TooltipContent>
                 {currentDiagram.updatedAt.toLocaleString()}
