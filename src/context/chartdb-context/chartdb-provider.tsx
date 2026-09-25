@@ -64,6 +64,7 @@ export const ChartDBProvider: React.FC<
     const [diagramCreatedAt, setDiagramCreatedAt] = useState<Date>(new Date());
     const [diagramUpdatedAt, setDiagramUpdatedAt] = useState<Date>(new Date());
     const savedUpdatedAtRef = useRef(diagramUpdatedAt.getTime());
+    const latestUpdatedAtRef = useRef(diagramUpdatedAt.getTime());
     const [diagramRevision, setDiagramRevision] = useState<number>();
     const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
     const [databaseType, setDatabaseType] = useState<DatabaseType>(
@@ -187,6 +188,7 @@ export const ChartDBProvider: React.FC<
     );
 
     React.useEffect(() => {
+        latestUpdatedAtRef.current = diagramUpdatedAt.getTime();
         if (diagramUpdatedAt.getTime() !== savedUpdatedAtRef.current) {
             setSaveStatus('unsaved');
         }
@@ -260,6 +262,7 @@ export const ChartDBProvider: React.FC<
     const updateDiagramUpdatedAt: ChartDBContext['updateDiagramUpdatedAt'] =
         useCallback(async () => {
             if (!currentDiagram.id || !diagramRevision) return;
+            const requestedUpdatedAt = currentDiagram.updatedAt.getTime();
             setSaveStatus('saving');
             const filter = await storageDB.getDiagramFilter(currentDiagram.id);
             try {
@@ -268,9 +271,14 @@ export const ChartDBProvider: React.FC<
                     revision: diagramRevision,
                     filter,
                 } as ServerDiagram);
+                const changedWhileSaving =
+                    latestUpdatedAtRef.current !== requestedUpdatedAt;
                 setDiagramRevision(saved.revision);
                 savedUpdatedAtRef.current = saved.updatedAt.getTime();
-                setDiagramUpdatedAt(saved.updatedAt);
+                if (!changedWhileSaving) {
+                    latestUpdatedAtRef.current = saved.updatedAt.getTime();
+                    setDiagramUpdatedAt(saved.updatedAt);
+                }
                 await storageDB.updateDiagram({
                     id: saved.id,
                     attributes: {
@@ -278,7 +286,7 @@ export const ChartDBProvider: React.FC<
                         revision: saved.revision,
                     },
                 });
-                setSaveStatus('saved');
+                setSaveStatus(changedWhileSaving ? 'unsaved' : 'saved');
             } catch (error) {
                 setSaveStatus('error');
                 if (error instanceof ChartDBAPIError && error.status === 409) {
@@ -304,6 +312,14 @@ export const ChartDBProvider: React.FC<
                 throw error;
             }
         }, [currentDiagram, diagramRevision, storageDB]);
+
+    React.useEffect(() => {
+        if (readonly || saveStatus !== 'unsaved' || !diagramRevision) return;
+        const timeout = window.setTimeout(() => {
+            updateDiagramUpdatedAt().catch(() => undefined);
+        }, 800);
+        return () => window.clearTimeout(timeout);
+    }, [readonly, saveStatus, diagramRevision, updateDiagramUpdatedAt]);
 
     const updateDatabaseType: ChartDBContext['updateDatabaseType'] =
         useCallback(
@@ -1967,6 +1983,7 @@ export const ChartDBProvider: React.FC<
                 setDiagramCreatedAt(diagram.createdAt);
                 setDiagramUpdatedAt(diagram.updatedAt);
                 savedUpdatedAtRef.current = diagram.updatedAt.getTime();
+                latestUpdatedAtRef.current = diagram.updatedAt.getTime();
                 setDiagramRevision(diagram.revision);
                 setSaveStatus('saved');
                 setHighlightedCustomTypeId(undefined);
@@ -2010,48 +2027,17 @@ export const ChartDBProvider: React.FC<
 
     const loadDiagram: ChartDBContext['loadDiagram'] = useCallback(
         async (diagramId: string) => {
-            let diagram: Diagram | undefined;
-            let isDraft = false;
-            try {
-                const serverDiagram = await getServerDiagram(diagramId);
-                const localDiagram = await storageDB.getDiagram(diagramId, {
-                    includeRelationships: true,
-                    includeTables: true,
-                    includeDependencies: true,
-                    includeAreas: true,
-                    includeCustomTypes: true,
-                    includeNotes: true,
-                });
-                const resumeDraft =
-                    localDiagram?.revision === serverDiagram.revision &&
-                    localDiagram.updatedAt.getTime() >
-                        serverDiagram.updatedAt.getTime() &&
-                    window.confirm(
-                        'An unsaved local draft exists. Press OK to resume it, or Cancel to discard it and load the server version.'
-                    );
-                isDraft = Boolean(resumeDraft);
-                diagram = resumeDraft ? localDiagram : serverDiagram;
-                if (!resumeDraft) {
-                    await storageDB.deleteDiagram(diagramId);
-                    await storageDB.addDiagram({ diagram: serverDiagram });
-                    if (serverDiagram.filter) {
-                        await storageDB.updateDiagramFilter(
-                            diagramId,
-                            serverDiagram.filter
-                        );
-                    }
-                }
-            } catch (error) {
-                console.error('Unable to load diagram from backend', error);
-                return undefined;
+            const serverDiagram = await getServerDiagram(diagramId);
+            await storageDB.deleteDiagram(diagramId);
+            await storageDB.addDiagram({ diagram: serverDiagram });
+            if (serverDiagram.filter) {
+                await storageDB.updateDiagramFilter(
+                    diagramId,
+                    serverDiagram.filter
+                );
             }
-
-            if (diagram) {
-                loadDiagramFromData(diagram);
-                if (isDraft) setSaveStatus('unsaved');
-            }
-
-            return diagram;
+            loadDiagramFromData(serverDiagram);
+            return serverDiagram;
         },
         [storageDB, loadDiagramFromData]
     );

@@ -44,7 +44,7 @@ const EditorPageComponent: React.FC = () => {
     const { isMd: isDesktop } = useBreakpoint('md');
     const { starUsDialogLastOpen, setStarUsDialogLastOpen, githubRepoOpened } =
         useLocalConfig();
-    const { initialDiagram } = useDiagramLoader();
+    const { initialDiagram, backendUnavailable } = useDiagramLoader();
 
     useEffect(() => {
         if (HIDE_CHARTDB_CLOUD) {
@@ -70,6 +70,30 @@ const EditorPageComponent: React.FC = () => {
         setStarUsDialogLastOpen,
         starUsDialogLastOpen,
     ]);
+
+    if (backendUnavailable) {
+        return (
+            <section className="flex h-screen w-screen items-center justify-center bg-background p-6">
+                <div className="max-w-lg rounded-lg border border-destructive/40 bg-card p-6 text-center shadow-sm">
+                    <h1 className="text-xl font-semibold">
+                        Cannot connect to ChartDB MySQL backend
+                    </h1>
+                    <p className="mt-3 text-sm text-muted-foreground">
+                        Start MySQL, verify the database credentials, then start
+                        Django on port 8000. This application does not use a
+                        browser database or an offline fallback.
+                    </p>
+                    <button
+                        type="button"
+                        className="mt-5 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground"
+                        onClick={() => window.location.reload()}
+                    >
+                        Retry connection
+                    </button>
+                </div>
+            </section>
+        );
+    }
 
     return (
         <>

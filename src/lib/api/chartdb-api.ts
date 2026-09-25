@@ -5,6 +5,10 @@ import type { DatabaseType } from '@/lib/domain/database-type';
 
 export type SaveStatus = 'saved' | 'unsaved' | 'saving' | 'error';
 export type ServerDiagram = Diagram & { revision: number };
+export const BACKEND_UNAVAILABLE_EVENT = 'chartdb-backend-unavailable';
+
+const reportBackendUnavailable = () =>
+    window.dispatchEvent(new Event(BACKEND_UNAVAILABLE_EVENT));
 
 export class ChartDBAPIError extends Error {
     constructor(
@@ -31,6 +35,7 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
             headers: { 'Content-Type': 'application/json', ...init?.headers },
         });
     } catch (error) {
+        reportBackendUnavailable();
         throw new ChartDBAPIError(
             0,
             'network_error',
@@ -39,6 +44,7 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
         );
     }
     if (!response.ok) {
+        if (response.status >= 500) reportBackendUnavailable();
         const body = await response.json().catch(() => ({}));
         throw new ChartDBAPIError(
             response.status,
@@ -104,16 +110,23 @@ export const streamAIExport = async ({
     signal?: AbortSignal;
     onDelta: (text: string) => void;
 }): Promise<string> => {
-    const response = await fetch(`${API_BASE_URL}/ai/sql-export/stream`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Accept: 'text/event-stream',
-        },
-        body: JSON.stringify({ sqlScript, targetDatabaseType }),
-        signal,
-    });
+    let response: Response;
+    try {
+        response = await fetch(`${API_BASE_URL}/ai/sql-export/stream`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'text/event-stream',
+            },
+            body: JSON.stringify({ sqlScript, targetDatabaseType }),
+            signal,
+        });
+    } catch (error) {
+        reportBackendUnavailable();
+        throw error;
+    }
     if (!response.ok || !response.body) {
+        if (response.status >= 500) reportBackendUnavailable();
         const body = await response.json().catch(() => ({}));
         throw new ChartDBAPIError(
             response.status,

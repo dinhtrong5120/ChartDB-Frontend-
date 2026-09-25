@@ -79,13 +79,14 @@ Use the [cloud version](https://app.chartdb.io?ref=github_readme_2) or deploy lo
 
 ```bash
 npm install
-VITE_API_BASE_URL=http://localhost:8000/api/v1 npm run dev
+npm run dev
 ```
 
-This frontend now uses the separate `chartdb-backend` repository as the source of
-truth for saved diagrams. IndexedDB remains a local draft and legacy migration
-store. Configure OpenAI and the source MySQL connection only in the backend; API
-keys and database credentials are never accepted by this frontend.
+This frontend uses the separate `chartdb-backend` repository and MySQL as the
+only persistent store for diagrams. Browser IndexedDB is not used. If the API or
+MySQL is unavailable, the editor displays a blocking connection error. Configure
+OpenAI and MySQL only in the backend; API keys and database credentials are never
+accepted by this frontend.
 
 ### Build
 
