@@ -1,7 +1,7 @@
 export const API_BASE_URL: string =
     window?.env?.API_BASE_URL ??
     import.meta.env.VITE_API_BASE_URL ??
-    'http://localhost:8000/api/v1';
+    'http://127.0.0.1:8000/api/v1';
 export const IS_CHARTDB_IO: boolean =
     import.meta.env.VITE_IS_CHARTDB_IO === 'true';
 export const APP_URL: string = import.meta.env.VITE_APP_URL;
